@@ -8,3 +8,4 @@ To Do:
 - Figure out and add comamand line arguents
 - Create data analyser and parser class
 - Create a script that calculates all the juicy statistics we all love, add visualisations, graphs, and so on.
+- add validate dataset
