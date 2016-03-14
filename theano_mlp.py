@@ -4,8 +4,8 @@
 
 import sys
 import theano.tensor as T
-import theano 
-
+import theano
+import numpy
 class Hidden_Layer(object):
 
     def __init__(self, rng, input, n_in, n_out, W=None, b=None,
