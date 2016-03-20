@@ -6,10 +6,11 @@ import sys
 import theano.tensor as T
 import theano
 import numpy
-class Hidden_Layer(object):
+class MLP_Layer(object):
 
-    def __init__(self, rng, input, n_in, n_out, W=None, b=None,
-                 activation=T.tanh):
+    def __init__(self, rng, n_in, n_out, W=None, b=None,
+                 activation=T.tanh, is_output = False):
+
         self.input = input
 
         if W is None:
@@ -34,58 +35,37 @@ class Hidden_Layer(object):
 
         self.W = W
         self.b = b
-
-        lin_output = T.dot(input, self.W) + self.b
-        self.output = (
-            lin_output if activation is None
-            else activation(lin_output)
-        )
-
+        self.activation = activation
         self.params = [self.W, self.b]
+        self.output = None
 
-    def relu(self, x):
-        return theano.tensor.switch(x < 0, 0, x)
-
-# This is the logistic Output Layer
-# I think i should be able to use this as basis for linear regression?
-
-
-class Logistic_Layer():
-
-    def __init__(self, input, activation, n_in, n_out):
-
-        # Weight matrix
-        self.W = theano.shared(
-            value=numpy.zeros(
-                (n_in, n_out),
-                dtype=theano.config.floatX
-            ),
-            name='W',
-            borrow=True
-        )
-        # bias vector
-        self.b = theano.shared(
-            value=numpy.zeros((n_out,),
-                              dtype=theano.config.floatX),
-            name='b',
-            borrow=True
-        )
-
-        # Gives a vector of probabilities - the probability distribution of Y|x
-        p_y_given_x = T.nnet.softmax(self.activate(activation, input))
 
         # Predicted class
         self.y_pred = self.predict
 
-        self.params = [self.W, self.b]
+    def activate(self, input):
 
         self.input = input
 
+        lin_output = T.dot(self.input, self.W) + self.b
+
+        self.output = (
+        lin_output if self.activation is None
+        else self.activation(lin_output)
+        )
+
+        return self.output.eval()
+
+    def probability_distribution(self, input):
+        if self.output is None:
+            self.output = self.activate(input)
+        self.p_y_given_x = T.nnet.softmax(self.output)
+
+    def relu(self, x):
+        return theano.tensor.switch(x < 0, 0, x)
+
     def predict():
         return T.argmax(self.p_y_given_x, axis=1)
-
-    def activate(activation, x):
-        return activation(T.dot(x, self.W) + self.b)
 
     def negative_log_likelihood(self, y):
         return -T.mean(T.log(self.p_y_given_x), [T.arange(y.shape[0], y)])
@@ -105,21 +85,25 @@ class Logistic_Layer():
 class Neural_Network(object):
 
     def __init__(self, rng, input, n_in, n_hidden, n_out):
-
-        self.hiddenLayer = HiddenLayer(
+        # One hidden layer.
+        self.hiddenLayer = MLP_Layer(
             rng=rng,
-            input=input,
             n_in=n_in,
             n_out=n_hidden,
             activation=T.sigmoid
         )
 
         # This is output layer
-        self.output_layer = Logistic_Layer(
-            input=self.hiddenLayer.output,
+        self.output_layer = MLP_Layer(
+            rng = rng
             n_in=n_hidden,
-            n_out=n_out
+            n_out=n_out,
+            activation = T.tanh
         )
+        self.input = input
+
+        hidden_layer.activate(self.input)
+        output_layer.activate(hidden_layer.output)
 
         # L1 and L2 regularization. Figure how to add for multiple layers
         self.L1 = (abs(self.hiddenLayer.W).sum()
@@ -140,7 +124,6 @@ class Neural_Network(object):
         # List of parameters
         self.params = self.hiddenLayer.params + self.logRegressionLayer.params
 
-        self.input = input
 
         self.index = T.lscalar  # index of minibatch
         self.x = T.matrix('x')  # Used for input data.
