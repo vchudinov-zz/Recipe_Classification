@@ -44,9 +44,10 @@ class mlp_Layer_test(unittest.TestCase):
             if activation is None:
                 expected = T.dot(inp, W) + b
             else:
+                layer.activate(inp)
                 expected = activation(T.dot(inp, W) + b)
 
-            assert ( expected.eval() == layer.activate(inp) )
+            assert ( expected.eval() == layer.output )
 
         return
 

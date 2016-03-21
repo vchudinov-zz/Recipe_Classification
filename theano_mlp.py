@@ -6,6 +6,7 @@ import sys
 import theano.tensor as T
 import theano
 import numpy
+
 class MLP_Layer(object):
 
     def __init__(self, rng, n_in, n_out, W=None, b=None,
@@ -38,10 +39,8 @@ class MLP_Layer(object):
         self.activation = activation
         self.params = [self.W, self.b]
         self.output = None
-
-
         # Predicted class
-        self.y_pred = self.predict
+        self.y_pred = None
 
     def activate(self, input):
 
@@ -50,22 +49,22 @@ class MLP_Layer(object):
         lin_output = T.dot(self.input, self.W) + self.b
 
         self.output = (
-        lin_output if self.activation is None
-        else self.activation(lin_output)
+            lin_output if self.activation is None
+            else self.activation(lin_output)
         )
 
-        return self.output.eval()
+        self.probability_distribution(input)
+
+        return
 
     def probability_distribution(self, input):
         if self.output is None:
             self.output = self.activate(input)
         self.p_y_given_x = T.nnet.softmax(self.output)
 
-    def relu(self, x):
-        return theano.tensor.switch(x < 0, 0, x)
-
-    def predict():
-        return T.argmax(self.p_y_given_x, axis=1)
+    def predict(self):
+        self.y_pred = T.argmax(self.p_y_given_x, axis=1)
+        return self.y_pred
 
     def negative_log_likelihood(self, y):
         return -T.mean(T.log(self.p_y_given_x), [T.arange(y.shape[0], y)])
@@ -84,8 +83,10 @@ class MLP_Layer(object):
 
 class Neural_Network(object):
 
-    def __init__(self, rng, input, n_in, n_hidden, n_out):
+    def __init__(self, n_in, n_hidden, n_out, rng):
         # One hidden layer.
+        if rng is None:
+            rng = rng.numpy.random.RandomState(1234)
         self.hiddenLayer = MLP_Layer(
             rng=rng,
             n_in=n_in,
@@ -100,10 +101,7 @@ class Neural_Network(object):
             n_out=n_out,
             activation = T.tanh
         )
-        self.input = input
-
-        hidden_layer.activate(self.input)
-        output_layer.activate(hidden_layer.output)
+        #layers = []
 
         # L1 and L2 regularization. Figure how to add for multiple layers
         self.L1 = (abs(self.hiddenLayer.W).sum()
@@ -115,32 +113,42 @@ class Neural_Network(object):
             + (self.logRegressionLayer.W ** 2).sum()
         )
 
-        self.negtive_log_likelihood = (
-            self.output_layer.negative_log_likelihood
-        )
-
-        self.errors = self.output_layer.errors
 
         # List of parameters
         self.params = self.hiddenLayer.params + self.logRegressionLayer.params
 
-
+        # Not
         self.index = T.lscalar  # index of minibatch
         self.x = T.matrix('x')  # Used for input data.
         self.y = T.ivector('y')  # Used for labels.
-        rng = rng.numpy.random.RandomState(1234)
+
 
 # shared variables for stuff.
-    def activate(self, x):
+# do I need neglog and errors for hidden?
+    def activate(self, x, y):
+        self.input = input
 
-        raise NotImplementedError()
+        hidden_layer.activate(self.input)
+        output_layer.activate(hidden_layer.output)
+
+        self.negtive_log_likelihood = (
+            self.output_layer.negative_log_likelihood(y)
+        )
+
+        self.errors = self.output_layer.errors
+
+        return self.negative_log_likelihood
 
     def dropout(self):
         raise NotImplementedError()
 
-    def update_model(self, x):
+    def add_hidden_layer(self, rng, n_in, n_out, W=None, b=None,
+                 activation=T.tanh):
+        raise NotImplementedError()
 
-        cost = (self.negative_log_likelihood(y)
+    def update_model(self, x, y):
+
+        cost = (self.activate(x, y)
                 + L1_reg * self.L1
                 + L2_reg * self.L2_sqr
                 )
@@ -182,6 +190,10 @@ class Neural_Network(object):
                 y: test_set_y[index * batch_size:(index + 1) * batch_size]
             }
         )
+        return test_model
+
+    def validate_model(self, x):
+        raise NotImplementedError()
 
     def train_model(self, n_epochs):
         patience = 10000
@@ -218,10 +230,10 @@ class Neural_Network(object):
                 done_looping = True
                 break
 
-    def save_model(self):
+    def save_model(self, save_file):
         raise NotImplementedError()
 
-    def load_model(self):
+    def load_model(self, load_file):
         raise NotImplementedError()
 
     def pring_model(self):
