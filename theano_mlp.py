@@ -6,6 +6,7 @@ import sys
 import theano.tensor as T
 import theano
 import numpy
+import cPickle as pickle
 
 class MLP_Layer(object):
 
@@ -55,24 +56,17 @@ class MLP_Layer(object):
 
         self.probability_distribution(input)
 
-        return
-
-    def probability_distribution(self, input):
-        if self.output is None:
-            self.output = self.activate(input)
         self.p_y_given_x = T.nnet.softmax(self.output)
 
-    def predict(self):
         self.y_pred = T.argmax(self.p_y_given_x, axis=1)
-        return self.y_pred
+        self.negative_log_likelihood =  -T.mean(T.log(self.p_y_given_x), [T.arange(y.shape[0], y)])
 
-    def negative_log_likelihood(self, y):
-        return -T.mean(T.log(self.p_y_given_x), [T.arange(y.shape[0], y)])
+        return
 
     def errors(self, y):
         if y.ndim != self.y_pred.ndim:
             raise TypeError(
-                'y should have the same share as y.pred',
+                'y should have the same shape as y.pred',
                 ('y', y.type, 'ypred', self.y_pred.type)
             )
         if y.dtype.startswith('int'):
@@ -87,6 +81,7 @@ class Neural_Network(object):
         # One hidden layer.
         if rng is None:
             rng = rng.numpy.random.RandomState(1234)
+
         self.hiddenLayer = MLP_Layer(
             rng=rng,
             n_in=n_in,
@@ -122,56 +117,28 @@ class Neural_Network(object):
         self.x = T.matrix('x')  # Used for input data.
         self.y = T.ivector('y')  # Used for labels.
 
-
-# shared variables for stuff.
-# do I need neglog and errors for hidden?
-    def activate(self, x, y):
-        self.input = input
-
-        hidden_layer.activate(self.input)
-        output_layer.activate(hidden_layer.output)
-
-        self.negtive_log_likelihood = (
-            self.output_layer.negative_log_likelihood(y)
-        )
-
-        self.errors = self.output_layer.errors
-
-        return self.negative_log_likelihood
-
-    def dropout(self):
-        raise NotImplementedError()
-
-    def add_hidden_layer(self, rng, n_in, n_out, W=None, b=None,
-                 activation=T.tanh):
-        raise NotImplementedError()
-
-    def update_model(self, x, y):
-
-        cost = (self.activate(x, y)
-                + L1_reg * self.L1
-                + L2_reg * self.L2_sqr
-                )
-
-        gradients = [T.grad(cost, param) for param in self.params]
-
-        updates = [
-            (param, param - learning_rate * gparam)
-            for param, gparam in zip(self.params, gradients)
-        ]
-
-        new_model = theano.function(
+        self.test_model = theano.function(
             inputs=[index],
-            outputs=cost,
-            updates=updates,
+            outputs=self.errors(self.y),
+            givens={
+                x: test_set_x[index * batch_size:(index + 1) * batch_size],
+                y: test_set_y[index * batch_size:(index + 1) * batch_size]
+            }
+
+        self.validate_model = None
+
+        self.update_model = theano.function(
+            inputs=[index],
+            outputs= self.cost,
+            updates= self.updates,
             givens={
                 x: train_set_x[index * batch_size: (index + 1) * batch_size],
                 y: train_set_y[index * batch_size: (index + 1) * batch_size]
             }
         )
-
         # alternative. not as optimal on big datasets.
         # updates just updates a given variable according to a given expression i.e. (var1, var1 + 1)
+
         # new_model = theano.function(
         # inputs = [train_set_x[index*batch_size : (index +1)*batch_size],
         # train_set_y[index*batch_size : (index +1)*batch_size]]
@@ -179,29 +146,54 @@ class Neural_Network(object):
         #updates = updates
         #)
 
-        return new_model(x)
 
-    def test_model(self, index, y):
-        test_model = theano.function(
-            inputs=[index],
-            outputs=self.errors(y),
-            givens={
-                x: test_set_x[index * batch_size:(index + 1) * batch_size],
-                y: test_set_y[index * batch_size:(index + 1) * batch_size]
-            }
+    def activate(self, x, y):
+        self.input = input
+
+        hidden_layer.activate(self.input)
+        output_layer.activate(hidden_layer.output)
+
+        self.negtive_log_likelihood = (
+            self.output_layer.negative_log_likelihood
         )
-        return test_model
 
-    def validate_model(self, x):
+        self.errors = self.output_layer.errors
+
+        return
+
+
+
+    def add_hidden_layer(self, rng, n_in, n_out, W=None, b=None,
+                 activation=T.tanh):
         raise NotImplementedError()
 
-    def train_model(self, n_epochs):
-        patience = 10000
-        patience_increase = 2
-        improvement_threshld = 0.995
+    def update(self, x, y, batch_size):
+
+        # here x is index or input?
+        # wat do with train_set_x and y and all the other stuff
+        self.cost = (self.activate(x, y)
+                + L1_reg * self.L1
+                + L2_reg * self.L2_sqr
+                )
+
+        self.gradients = [T.grad(cost,param) for param in self.params]
+
+        self.updates = [
+            (param, param - learning_rate * gparam)
+            for param, gparam in zip(self.params, gradients)
+        ]
+
+
+        return self.update_model(x)
+
+    def train_model(self, n_epochs, patience = 10000, patience_increase = 2, improvement_threshld = 0.995):
+
+        patience = patience
+        patience_increase = patience_increase
+        improvement_threshld = improvement_threshld
         validation_frequency = min(n_train_batches, patience // 2)
 
-        best_loss = numpy.inf
+        best_validation_loss = numpy.inf
         best_iter = 0
         test_score = 0
         start_time = timeit.default_timer()
@@ -212,6 +204,7 @@ class Neural_Network(object):
             epoch = epoch + 1
             for minibatch_index in range(n_train_batches):
                 minibatch_avg_cost = update_model(minibatch_index)
+
                 iter = (epoch - 1) * n_train_batches + minibatch_index
                 if (iter + 1) % validation_frequency == 0:
                     validation_losses = [
@@ -220,6 +213,7 @@ class Neural_Network(object):
 
                 if this_validation_loss < best_validation_loss * improvement_threshld:
                     patience = max(patience, iter * patience_increase)
+
                 best_validation_loss = this_validation_loss
                 best_iter = iter
 
@@ -230,13 +224,19 @@ class Neural_Network(object):
                 done_looping = True
                 break
 
-    def save_model(self, save_file):
+    def dropout(self):
         raise NotImplementedError()
+
+    def save_model(self, save_file):
+        with open(save_file, 'wb') as file:
+            pickle.dupm(self, file, -1)
+        return
 
     def load_model(self, load_file):
+
         raise NotImplementedError()
 
-    def pring_model(self):
+    def print_model(self):
         raise NotImplementedError()
 
     def visualize_model(self):
